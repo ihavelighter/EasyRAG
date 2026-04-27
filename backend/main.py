@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import ask, health, ingest
+from app.api import ask, health, ingest, kb
 from app.core.settings import get_settings
 
 LOG_DIR = Path("logs")
@@ -26,7 +26,7 @@ logging.basicConfig(
 def create_app() -> FastAPI:
     """创建 FastAPI 应用并挂载路由与 CORS。"""
     cfg = get_settings()
-    app = FastAPI(title="netMind RAG API", version="0.1.0")
+    app = FastAPI(title="EasyRAG API", version="0.1.0")
 
     # CORS：开发环境默认放行 Vite 开发服务器；生产可用环境变量覆盖
     cors_env = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
@@ -37,16 +37,25 @@ def create_app() -> FastAPI:
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         ]
+    cors_credentials_env = os.getenv("CORS_ALLOW_CREDENTIALS", "").strip().lower()
+    if cors_credentials_env:
+        allow_credentials = cors_credentials_env not in {"0", "false", "no"}
+    else:
+        allow_credentials = True
+    if "*" in allow_origins:
+        # Avoid invalid CORS headers when allowing any origin.
+        allow_credentials = False
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,
-        allow_credentials=True,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     app.include_router(health.router)
+    app.include_router(kb.router)
     app.include_router(ingest.router)
     app.include_router(ask.router)
 

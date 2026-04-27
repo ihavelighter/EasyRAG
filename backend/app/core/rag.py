@@ -48,10 +48,23 @@ def _prepare_nodes(documents: Sequence, settings: Settings) -> List[BaseNode]:
     return nodes
 
 
-def ingest_corpus(rebuild: bool, settings: Settings | None = None) -> tuple[int, int]:
-    """执行 ingest：可选重建、解析+切分、向量化并持久化 FAISS 索引。"""
-    cfg = settings or get_settings()
-    logger.info("开始构建索引：rebuild=%s，原始目录=%s", rebuild, cfg.raw_dir)
+def _with_kb(settings: Settings, kb: str) -> Settings:
+    """基于全局 Settings 派生出指定知识库的配置（独立 raw/index 目录）。"""
+    if not kb:
+        raise ValueError("知识库名称 kb 不能为空")
+    cfg = settings.model_copy()
+    cfg.raw_dir = (settings.raw_dir / kb).resolve()
+    cfg.index_dir = (settings.index_dir / kb).resolve()
+    cfg.raw_dir.mkdir(parents=True, exist_ok=True)
+    cfg.index_dir.mkdir(parents=True, exist_ok=True)
+    return cfg
+
+
+def ingest_corpus(kb: str, rebuild: bool, settings: Settings | None = None) -> tuple[int, int]:
+    """执行 ingest：对指定知识库可选重建、解析+切分、向量化并持久化 FAISS 索引。"""
+    base_cfg = settings or get_settings()
+    cfg = _with_kb(base_cfg, kb)
+    logger.info("开始构建索引：kb=%s, rebuild=%s，原始目录=%s", kb, rebuild, cfg.raw_dir)
     if rebuild and cfg.index_dir.exists():
         logger.info("清空已有索引目录：%s", cfg.index_dir)
         shutil.rmtree(cfg.index_dir)
@@ -113,12 +126,18 @@ def _build_context_prompt(contexts: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def retrieve_and_answer(question: str, top_k: int | None, settings: Settings | None = None) -> tuple[str, list[dict], int]:
-    """加载索引→Top‑K 检索→上下文拼接→调用生成→返回答案与引用。"""
-    cfg = settings or get_settings()
+def retrieve_and_answer(
+    kb: str,
+    question: str,
+    top_k: int | None,
+    settings: Settings | None = None,
+) -> tuple[str, list[dict], int]:
+    """加载指定知识库索引→Top‑K 检索→上下文拼接→调用生成→返回答案与引用。"""
+    base_cfg = settings or get_settings()
+    cfg = _with_kb(base_cfg, kb)
     start = time.perf_counter()
 
-    logger.info("收到提问：%s，Top-K=%s", question, top_k)
+    logger.info("收到提问：kb=%s, 问题=%s，Top-K=%s", kb, question, top_k)
 
     # 使用全局 Settings 设置嵌入模型，避免已弃用的 ServiceContext
     embed_model = get_embedding_model()
@@ -134,6 +153,9 @@ def retrieve_and_answer(question: str, top_k: int | None, settings: Settings | N
         contexts = _manual_faiss_retrieve(question, top_k or cfg.similarity_top_k, cfg)
     # 控制总长度，避免超出生成模型可用的上下文窗口
     contexts = _trim_contexts(contexts, cfg)
+    # 为每个上下文片段分配引用编号 ref，便于在回答中使用 [1][2]… 映射
+    for idx, ctx in enumerate(contexts, start=1):
+        ctx["ref"] = idx
     logger.info("检索到上下文片段：%s 个（已按预算裁剪）", len(contexts))
 
     if not contexts:
