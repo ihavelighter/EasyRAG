@@ -179,8 +179,6 @@ def _manual_faiss_retrieve(question: str, top_k: int, settings: Settings) -> lis
     """
     import json
     from pathlib import Path
-    import logging
-    logger = logging.getLogger(__name__)
 
     persist_dir = Path(settings.index_dir)
     faiss_idx_path = persist_dir / "faiss.index"

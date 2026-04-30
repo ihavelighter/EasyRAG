@@ -37,7 +37,6 @@
 
 <p align="center" style="margin-top: -8px;">
   <a href="#快速开始">快速开始</a>
-  · <a href="#本地化应用设计electron">桌面端设计</a>
   · <a href="#api-速览">API</a>
   · <a href="#特性与实现要点">特性</a>
   · <a href="#目录结构">结构</a>
